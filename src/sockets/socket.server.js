@@ -2,8 +2,9 @@ const { Server } = require("socket.io");
 const cookie = require("cookie");
 const jwt = require("jsonwebtoken");
 const userModel = require("../models/user.model");
-const { generateContent } = require("../services/ai.service");
+const { generateContent, generateVector } = require("../services/ai.service");
 const messageModel = require("../models/message.model");
+const { createMemory, queryMemory } = require("../services/vector.service");
 
 function createSocketServer(httpServer) {
   const io = new Server(httpServer, {});
@@ -40,11 +41,31 @@ function createSocketServer(httpServer) {
     socket.on("ai-message", async (messagePayload) => {
       console.log("AI message received:", messagePayload);
 
-      await messageModel.create({
+      const message = await messageModel.create({
         user: socket.user._id,
         chat: messagePayload.chat,
         content: messagePayload.content,
         role: "user",
+      });
+
+      const vectors = await generateVector(messagePayload.content);
+
+      const memory = await queryMemory({
+        queryVector: vectors,
+        limit: 3,
+        metadata: {},
+      });
+
+      console.log(memory)
+
+      await createMemory({
+        vectors,
+        messageId: message._id,
+        metadata: {
+          chat: messagePayload.chat,
+          user: socket.user._id,
+          text: messagePayload.content,
+        },
       });
 
       const chatHistory = (
@@ -56,7 +77,7 @@ function createSocketServer(httpServer) {
           .limit(20)
           .lean()
       ).reverse();
-      
+
       const response = await generateContent(
         chatHistory.map((msg) => {
           return {
@@ -66,11 +87,23 @@ function createSocketServer(httpServer) {
         })
       );
 
-      await messageModel.create({
-        user: socket.user._id,
+      const responseMessage = await messageModel.create({
         chat: messagePayload.chat,
+        user: socket.user._id,
         content: response,
         role: "model",
+      });
+
+      const responseVectors = await generateVector(response);
+
+      await createMemory({
+        vectors,
+        messageId: responseMessage._id,
+        metadata: {
+          chat: messagePayload.chat,
+          user: socket.user._id,
+          text: response,
+        },
       });
 
       socket.emit("ai-response", {
