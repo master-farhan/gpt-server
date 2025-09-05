@@ -56,8 +56,6 @@ function createSocketServer(httpServer) {
         metadata: {},
       });
 
-      console.log(memory)
-
       await createMemory({
         vectors,
         messageId: message._id,
@@ -78,14 +76,34 @@ function createSocketServer(httpServer) {
           .lean()
       ).reverse();
 
-      const response = await generateContent(
-        chatHistory.map((msg) => {
-          return {
-            role: msg.role,
-            parts: [{ text: msg.content }],
-          };
-        })
-      );
+      const stm = chatHistory.map((msg) => {
+        return {
+          role: msg.role,
+          parts: [{ text: msg.content }],
+        };
+      });
+
+      const ltm = [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `
+            
+            these are some previous messages from the chat, use them to generate a response 
+            
+            ${memory.map((item) => item.metadata.text).join("\n")}
+            `,
+            },
+          ],
+        },
+      ];
+
+      console.log(ltm[0])
+      console.log(stm)
+      
+      const response = await generateContent([...ltm, ...stm]);
+
 
       const responseMessage = await messageModel.create({
         chat: messagePayload.chat,
