@@ -5,7 +5,16 @@ const createSocketServer = require("./src/sockets/socket.server");
 const httpServer = require("http").createServer(app);
 
 connectDB();
-createSocketServer(httpServer);
+
+// Pass CORS options so frontend can connect
+createSocketServer(httpServer, {
+  cors: {
+    origin: "http://localhost:5173", // frontend URL
+    methods: ["GET", "POST"],
+    credentials: true, // needed for cookies/JWT
+  },
+});
+
 httpServer.listen(3000, () => {
   console.log("Server is running on port 3000");
 });

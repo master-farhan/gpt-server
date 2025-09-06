@@ -6,23 +6,21 @@ const { generateContent, generateVector } = require("../services/ai.service");
 const messageModel = require("../models/message.model");
 const { createMemory, queryMemory } = require("../services/vector.service");
 
-function createSocketServer(httpServer) {
-  const io = new Server(httpServer, {});
+function createSocketServer(httpServer, options = {}) {
+  // Apply CORS options from server.js
+  const io = new Server(httpServer, {
+    cors: options.cors || {},
+  });
 
-  // middleware
+  // Middleware for JWT auth
   io.use(async (socket, next) => {
     const cookies = cookie.parse(socket.handshake.headers?.cookie || "");
-
-    if (!cookies.token) {
-      return next(new Error("Authentication error: No token provided"));
-    }
+    if (!cookies.token) return next(new Error("Authentication error: No token"));
 
     try {
       const decoded = jwt.verify(cookies.token, process.env.JWT_SECRET);
-
       const user = await userModel.findById(decoded._id);
       socket.user = user;
-
       console.log("User authenticated:", user);
       next();
     } catch (error) {
@@ -37,7 +35,7 @@ function createSocketServer(httpServer) {
       console.log("Client disconnected:", socket.id);
     });
 
-    // ai-message
+    // AI message handling
     socket.on("ai-message", async (messagePayload) => {
       const [message, vectors] = await Promise.all([
         messageModel.create({
@@ -46,7 +44,6 @@ function createSocketServer(httpServer) {
           content: messagePayload.content,
           role: "user",
         }),
-
         generateVector(messagePayload.content),
       ]);
 
@@ -64,11 +61,8 @@ function createSocketServer(httpServer) {
         queryMemory({
           queryVector: vectors,
           limit: 3,
-          metadata: {
-            user: socket.user._id,
-          },
+          metadata: { user: socket.user._id },
         }),
-
         messageModel
           .find({ chat: messagePayload.chat })
           .sort({ createdAt: -1 })
@@ -77,12 +71,10 @@ function createSocketServer(httpServer) {
           .then((messages) => messages.reverse()),
       ]);
 
-      const stm = chatHistory.map((msg) => {
-        return {
-          role: msg.role,
-          parts: [{ text: msg.content }],
-        };
-      });
+      const stm = chatHistory.map((msg) => ({
+        role: msg.role,
+        parts: [{ text: msg.content }],
+      }));
 
       const ltm = [
         {
@@ -90,11 +82,9 @@ function createSocketServer(httpServer) {
           parts: [
             {
               text: `
-            
-            these are some previous messages from the chat, use them to generate a response 
-            
-            ${memory.map((item) => item.metadata.text).join("\n")}
-            `,
+                these are some previous messages from the chat, use them to generate a response
+                ${memory.map((item) => item.metadata.text).join("\n")}
+              `,
             },
           ],
         },
@@ -102,10 +92,7 @@ function createSocketServer(httpServer) {
 
       const response = await generateContent([...ltm, ...stm]);
 
-      socket.emit("ai-response", {
-        content: response,
-        chat: messagePayload.chat,
-      });
+      socket.emit("ai-response", { content: response, chat: messagePayload.chat });
 
       const [responseMessage, responseVectors] = await Promise.all([
         messageModel.create({
@@ -114,12 +101,11 @@ function createSocketServer(httpServer) {
           content: response,
           role: "model",
         }),
-
         generateVector(response),
       ]);
 
       await createMemory({
-        vectors,
+        vectors: responseVectors,
         messageId: responseMessage._id,
         metadata: {
           chat: messagePayload.chat,
