@@ -13,5 +13,7 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/chat", require("./routes/chat.routes"));
+app.use("/api/messages", require("./routes/message.routes"));
+
 
 module.exports = app;
