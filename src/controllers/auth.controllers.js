@@ -74,4 +74,41 @@ async function logoutUser(req, res) {
   res.status(200).json({ message: "User logged out successfully" });
 }
 
-module.exports = { registerUser, loginUser, logoutUser };
+const getUser = async (req, res) => {
+  try {
+    const token = req.cookies.token;
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Find user by ID from token
+    const user = await userModel.findById(decoded._id).select("-password -__v"); // ✅ use decoded._id
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};
+
+
+module.exports = { registerUser, loginUser, logoutUser, getUser };
