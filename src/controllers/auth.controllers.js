@@ -2,6 +2,22 @@ const userModel = require("../models/user.model");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
+// helper → generateToken & setCookie
+function generateTokenAndSetCookie(userId, res) {
+  const token = jwt.sign({ _id: userId }, process.env.JWT_SECRET, {
+    expiresIn: "7d", // ✅ 7 days expiry
+  });
+
+  res.cookie("token", token, {
+    httpOnly: true,       // XSS attack থেকে নিরাপদ
+    secure: true,         // ✅ production এ অবশ্যই true (localhost এ false দিতে পারো)
+    sameSite: "None",     // ✅ cross-origin cookies allow করবে (client=http://localhost:5173)
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
+  });
+
+  return token;
+}
+
 // register user
 async function registerUser(req, res) {
   try {
@@ -9,20 +25,16 @@ async function registerUser(req, res) {
 
     const existingUser = await userModel.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: "Invalid user data" });
+      return res.status(400).json({ message: "User already exists" });
     }
 
     const user = await userModel.create({
-      fullName: {
-        firstName,
-        lastName,
-      },
+      fullName: { firstName, lastName },
       email,
       password: await bcrypt.hash(password, 10),
     });
 
-    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET);
-    res.cookie("token", token);
+    generateTokenAndSetCookie(user._id, res);
 
     res.status(201).json({
       message: "User registered successfully",
@@ -52,8 +64,7 @@ async function loginUser(req, res) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
-    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET);
-    res.cookie("token", token);
+    generateTokenAndSetCookie(user._id, res);
 
     res.status(200).json({
       message: "User logged in successfully",
@@ -70,10 +81,15 @@ async function loginUser(req, res) {
 
 // logout user
 async function logoutUser(req, res) {
-  res.clearCookie("token");
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+  });
   res.status(200).json({ message: "User logged out successfully" });
 }
 
+// get logged-in user
 const getUser = async (req, res) => {
   try {
     const token = req.cookies.token;
@@ -84,9 +100,8 @@ const getUser = async (req, res) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Find user by ID from token
-    const user = await userModel.findById(decoded._id).select("-password -__v"); // ✅ use decoded._id
-
+    // Find user by ID
+    const user = await userModel.findById(decoded._id).select("-password -__v");
     if (!user) {
       return res
         .status(404)
@@ -109,6 +124,5 @@ const getUser = async (req, res) => {
     });
   }
 };
-
 
 module.exports = { registerUser, loginUser, logoutUser, getUser };
